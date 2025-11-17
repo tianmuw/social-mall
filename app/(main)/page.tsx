@@ -1,18 +1,32 @@
 // 路径: app/(main)/page.tsx
 // (替换你现有的同名文件)
 
+"use client"; // 1. 关键改动：转换为客户端组件以使用 state 和 ref
+
 import Image from "next/image";
-import { Search, Zap, Newspaper } from "lucide-react";
+import Link from "next/link"; // 2. 关键改动：导入 Link
+import { useState, useRef } from "react"; // 3. 关键改动：导入 hooks
+import { Search, Zap, Newspaper, ChevronLeft, ChevronRight } from "lucide-react";
 
 // --- Mock Data (模拟数据) ---
-// 你之后会用 API 从后端获取这些数据
+// (这部分与之前相同)
 
 // 1.1.2 趋势 (模拟10条)
-const mockTrends = [
+// 增加一个类型定义，方便我们写函数
+type Trend = {
+  id: string;
+  rank: number;
+  type: "product" | "topic";
+  title: string;
+  imageUrl: string;
+  views: string;
+};
+
+const mockTrends: Trend[] = [
   {
     id: "t1",
     rank: 1,
-    type: "product", // 'product' 或 'topic'
+    type: "product",
     title: "新款 CyberDrone X1",
     imageUrl: "https://images.unsplash.com/photo-1507577973340-63957813a216?q=80&w=1920&auto=format&fit=crop",
     views: "5.2M",
@@ -33,7 +47,14 @@ const mockTrends = [
     imageUrl: "https://images.unsplash.com/photo-1546868871-7041f2a55e12?q=80&w=1920&auto=format&fit=crop",
     views: "4.1M",
   },
-  // ... (你可以继续添加 7 条)
+  {
+    id: "t4",
+    rank: 4,
+    type: "topic",
+    title: "#周末去哪儿#",
+    imageUrl: "https://images.unsplash.com/photo-1501183007986-d0d08a3c826b?q=80&w=1920&auto=format&fit=crop",
+    views: "3.5M",
+  },
 ];
 
 // 1.1.3 新闻消息 (模拟30条)
@@ -54,32 +75,35 @@ const mockNews = [
     views: "120.k",
     imageUrl: "https://images.unsplash.com/photo-1522199710521-72d69614c702?q=80&w=800&auto=format&fit=crop",
   },
-  {
-    id: "n3",
-    tag: "#摄影#",
-    title: "索尼发布 A9 III 全局快门相机，你怎么看？",
-    source: "来自 话题 #摄影#",
-    views: "98.5k",
-    imageUrl: "https://images.unsplash.com/photo-1519638831568-d9897f54ed69?q=80&w=800&auto=format&fit=crop",
-  },
-  // ... (你可以继续添加 27 条，这里仅为示例)
+  // ... (其余数据填充逻辑与之前相同)
 ];
-// 填充一些数据以便展示
-for (let i = 4; i <= 30; i++) {
+for (let i = 3; i <= 30; i++) {
   mockNews.push({
     id: `n${i}`,
     tag: i % 2 === 0 ? "#商品#" : "#热议#",
     title: `这是第 ${i} 条新闻的标题，内容关于...`,
     source: `来自 @用户${i}`,
     views: `${(30 - i) * 10.1}k`,
-    imageUrl: `https://source.unsplash.com/random/800x600?sig=${i}`, // 随机图片
+    imageUrl: `https://source.unsplash.com/random/800x600?sig=${i}`,
   });
 }
+
+// 辅助函数：根据趋势类型生成跳转链接
+const getTrendHref = (trend: Trend) => {
+  // 移除标题中的#号，并编码，使其可以安全地放在URL中
+  const safeTitle = encodeURIComponent(trend.title.replace(/#/g, ""));
+  
+  // 商家商品 -> /products/商品ID
+  // 话题 -> /topics/话题标题
+  return trend.type === "product"
+    ? `/products/${trend.id}`
+    : `/topics/${safeTitle}`;
+};
+
 
 // --- 广场页面 ( / ) ---
 export default function PlazaPage() {
   return (
-    // 使用 flex-col 布局，各个部分垂直排列，gap-8 制造间距
     <div className="flex flex-col gap-8 text-white">
       {/* 1.1.1 搜索框 */}
       <SearchBar />
@@ -97,14 +121,11 @@ export default function PlazaPage() {
 
 /**
  * 1.1.1 搜索框
+ * (这部分与之前相同)
  */
 function SearchBar() {
   return (
     <div>
-      {/* 我们使用一个 relative 容器，并将图标 absolute 定位在内部。
-        输入框使用 pl-10 (padding-left) 来为图标腾出空间。
-        bg-neutral-800 是一个比 -900 稍亮的深灰色，用于区分。
-      */}
       <label htmlFor="search" className="sr-only">
         搜索
       </label>
@@ -126,29 +147,54 @@ function SearchBar() {
 
 /**
  * 1.1.2 趋势轮播图 (Top 10)
- * 我们使用 Tailwind 的 'overflow-x-auto' 和 'scroll-snap' 来实现一个 CSS-only 轮播图。
+ * 关键改动：使用 state 和 ref 来实现按钮控制
  */
-function TrendsCarousel({ trends }: { trends: typeof mockTrends }) {
+function TrendsCarousel({ trends }: { trends: Trend[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const totalTrends = trends.length;
+
+  const handleScroll = (direction: "prev" | "next") => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // 关键改动：宽度现在是 container 的 clientWidth，确保一次只滚一个
+    const slideWidth = container.clientWidth;
+    let newIndex = currentIndex;
+
+    if (direction === "next") {
+      newIndex = Math.min(currentIndex + 1, totalTrends - 1);
+      container.scrollTo({ left: newIndex * slideWidth, behavior: "smooth" });
+    } else {
+      newIndex = Math.max(currentIndex - 1, 0);
+      container.scrollTo({ left: newIndex * slideWidth, behavior: "smooth" });
+    }
+    
+    setCurrentIndex(newIndex);
+  };
+
   return (
-    <section>
+    <section className="relative"> {/* 1. 添加 relative 以便定位按钮 */}
       <div className="mb-4 flex items-center gap-2">
         <Zap className="h-6 w-6 text-yellow-400" />
         <h2 className="text-2xl font-bold">今日趋势</h2>
       </div>
 
       {/* 轮播图容器:
-        - flex: 让子元素水平排列
-        - overflow-x-auto: 允许水平滚动
-        - snap-x & snap-mandatory: 开启滚动捕捉，实现"轮播"效果
-        - scrollbar-hide: 一个常用的 CSS 类 (你需要在 global.css 中添加它)
-          (若要添加, 在 global.css 中加入: .scrollbar-hide::-webkit-scrollbar { display: none; } 
-            .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; } )
+        - 关键改动：移除 snap-x, snap-mandatory
+        - 关键改动：添加 overflow-x-hidden (因为我们用按钮控制)
       */}
-      <div className="flex gap-6 overflow-x-auto snap-x snap-mandatory pb-4 scrollbar-hide">
+      <div
+        ref={scrollContainerRef}
+        className="flex overflow-x-hidden pb-4" // 隐藏滚动条，禁用CSS Snap
+      >
         {trends.map((trend) => (
-          <div
+          // 2. 关键改动：整个卡片用 <Link> 包裹
+          <Link
+            href={getTrendHref(trend)}
             key={trend.id}
-            className="relative h-72 w-full flex-shrink-0 snap-center overflow-hidden rounded-2xl md:w-3/4"
+            // 关键改动：w-full 确保一张卡片占满宽度
+            className="relative h-72 w-full flex-shrink-0 overflow-hidden rounded-2xl"
           >
             {/* 背景图片 */}
             <Image
@@ -156,9 +202,9 @@ function TrendsCarousel({ trends }: { trends: typeof mockTrends }) {
               alt={trend.title}
               fill
               className="object-cover"
-              priority={trend.rank <= 2} // 优先加载前两张
+              priority={trend.rank <= 2}
             />
-            {/* 渐变遮罩，让文字更清晰 */}
+            {/* 渐变遮罩 */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
 
             {/* 内容 */}
@@ -169,16 +215,35 @@ function TrendsCarousel({ trends }: { trends: typeof mockTrends }) {
               <h3 className="mt-3 text-3xl font-bold">{trend.title}</h3>
               <p className="mt-1 text-sm text-neutral-300">{trend.views} 浏览</p>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
+      
+      {/* 3. 关键改动：添加控制按钮 */}
+      {/* 上一张按钮 */}
+      <button
+        onClick={() => handleScroll("prev")}
+        disabled={currentIndex === 0}
+        className="absolute left-4 top-1/2 -translate-y-1/2 z-10 rounded-full bg-black/30 p-2 text-white transition hover:bg-black/50 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <ChevronLeft className="h-6 w-6" />
+      </button>
+
+      {/* 下一张按钮 */}
+      <button
+        onClick={() => handleScroll("next")}
+        disabled={currentIndex === totalTrends - 1}
+        className="absolute right-4 top-1/2 -translate-y-1/2 z-10 rounded-full bg-black/30 p-2 text-white transition hover:bg-black/50 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <ChevronRight className="h-6 w-6" />
+      </button>
     </section>
   );
 }
 
+
 /**
  * 1.1.3 新闻消息 (Top 30)
- * 我们使用 Tailwind Grid 布局来实现卡片流。
  */
 function NewsFeed({ news }: { news: typeof mockNews }) {
   return (
@@ -188,15 +253,12 @@ function NewsFeed({ news }: { news: typeof mockNews }) {
         <h2 className="text-2xl font-bold">新鲜事</h2>
       </div>
 
-      {/* Grid 布局:
-        - 默认为 1 列
-        - md (中等屏幕) 及以上为 2 列
-        - lg (大屏幕) 及以上为 3 列
-        - xl (超大屏幕) 及以上为 4 列
-      */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {news.map((item) => (
-          <div
+          // 关键改动：整个卡片用 <Link> 包裹
+          // 链接到 /news/新闻ID
+          <Link
+            href={`/news/${item.id}`}
             key={item.id}
             className="flex transform flex-col overflow-hidden rounded-xl bg-neutral-800 shadow-lg transition-all duration-300 hover:shadow-blue-500/20 hover:-translate-y-1"
           >
@@ -222,7 +284,7 @@ function NewsFeed({ news }: { news: typeof mockNews }) {
                 {item.source} · {item.views} 浏览
               </p>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </section>
